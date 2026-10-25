@@ -1,0 +1,24 @@
+[package]
+name = "erlc-cad-desktop"
+version = "0.2.0"
+description = "Desktop-Hülle mit Overlay-Modus für das ERLC CAD"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+# Die `plugins`-Einträge der tauri.conf.json (Updater) erzeugen Code mit serde_json.
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

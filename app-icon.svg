@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Grund -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+
+  <!-- Schild: neutral für Polizei, Feuerwehr und Rettungsdienst -->
+  <path d="M512 130 L810 242 V520 C810 712 688 846 512 902 C336 846 214 712 214 520 V242 Z"
+        fill="url(#shield)" stroke="#bfdbfe" stroke-width="22" stroke-linejoin="round"/>
+
+  <!-- Fadenkreuz: Leitstelle, Einsatzort im Blick -->
+  <circle cx="512" cy="520" r="170" fill="none" stroke="#ffffff" stroke-width="30"/>
+  <g stroke="#ffffff" stroke-width="30" stroke-linecap="round">
+    <line x1="512" y1="290" x2="512" y2="372"/>
+    <line x1="512" y1="668" x2="512" y2="750"/>
+    <line x1="282" y1="520" x2="364" y2="520"/>
+    <line x1="660" y1="520" x2="742" y2="520"/>
+  </g>
+
+  <!-- Notruf-Markierung -->
+  <circle cx="512" cy="520" r="52" fill="#ef4444"/>
+  <circle cx="512" cy="520" r="52" fill="none" stroke="#fecaca" stroke-width="12" opacity="0.8"/>
+</svg>

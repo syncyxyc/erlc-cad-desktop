@@ -1,0 +1,14 @@
+{
+  "name": "erlc-cad-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Desktop-Hülle mit Overlay-Modus für das ERLC CAD",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

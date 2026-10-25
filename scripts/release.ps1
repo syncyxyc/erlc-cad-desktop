@@ -65,7 +65,13 @@ $latest = [ordered]@{
 New-Item -ItemType Directory -Force "release" | Out-Null
 Copy-Item $installer.FullName "release\$assetName" -Force
 Copy-Item $sigFile "release\$assetName.sig" -Force
-$latest | ConvertTo-Json -Depth 5 | Set-Content "release\latest.json" -Encoding utf8
+# Ohne BOM: Windows PowerShell 5.1 schreibt mit `-Encoding utf8` eins an den Anfang,
+# und der JSON-Parser des Updaters lehnt die Datei dann ab.
+[IO.File]::WriteAllText(
+  (Join-Path (Get-Location) "release\latest.json"),
+  ($latest | ConvertTo-Json -Depth 5),
+  (New-Object System.Text.UTF8Encoding($false))
+)
 Write-Host "Fertig: release\$assetName, .sig und latest.json (Version $version)"
 
 if ($Publish) {

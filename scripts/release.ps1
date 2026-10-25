@@ -65,6 +65,10 @@ $latest = [ordered]@{
 New-Item -ItemType Directory -Force "release" | Out-Null
 Copy-Item $installer.FullName "release\$assetName" -Force
 Copy-Item $sigFile "release\$assetName.sig" -Force
+# Dieselbe Datei mit festem Namen ohne Version: darauf zeigt der Download-Knopf der Website
+# (.../releases/latest/download/ERLC-CAD-Setup.exe), der so nie veraltet.
+$stableName = "ERLC-CAD-Setup.exe"
+Copy-Item $installer.FullName "release\$stableName" -Force
 # Ohne BOM: Windows PowerShell 5.1 schreibt mit `-Encoding utf8` eins an den Anfang,
 # und der JSON-Parser des Updaters lehnt die Datei dann ab.
 [IO.File]::WriteAllText(
@@ -75,7 +79,7 @@ Copy-Item $sigFile "release\$assetName.sig" -Force
 Write-Host "Fertig: release\$assetName, .sig und latest.json (Version $version)"
 
 if ($Publish) {
-  gh release create "v$version" "release\$assetName" "release\$assetName.sig" "release\latest.json" `
+  gh release create "v$version" "release\$assetName" "release\$assetName.sig" "release\latest.json" "release\$stableName" `
     --repo $Repo --title "ERLC CAD Desktop $version" --notes ($(if ($Notes) { $Notes } else { "Version $version" }))
   if ($LASTEXITCODE -ne 0) { throw "Release konnte nicht angelegt werden" }
   Write-Host "Veroeffentlicht: https://github.com/$Repo/releases/tag/v$version"

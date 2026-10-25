@@ -11,16 +11,28 @@
 //! Fensterverhalten läuft hier in Rust:
 //!
 //! - Strg+Alt+C        alle Fenster aus-/einblenden
+//! - Strg+Alt+V        alle Fenster einmal nach vorne holen (auch über Roblox)
+//! - Strg+Alt+T        „Immer im Vordergrund“ an/aus (Standard: aus)
 //! - Strg+Alt+X        Spielmodus: Mausklicks gehen durch die Fenster ins Spiel
 //! - Strg+Alt+E        Widgets bearbeiten: Rahmen zum Verschieben und Skalieren
 //! - Strg+Alt+↑ / ↓    Fenster durchsichtiger / deckender
+//!
+//! Die Fenster liegen standardmäßig wie normale Fenster: klickst du in Roblox,
+//! kommt Roblox nach vorne. Wer die Widgets immer darüber haben will, schaltet
+//! „Immer im Vordergrund“ ein.
+//!
+//! Widget-Fenster zeigen nie eine Login-Seite: Ohne gültige Anmeldung bleiben sie
+//! zu, bis du dich im Hauptfenster angemeldet hast.
 //!
 //! Es sind eigene Fenster neben Roblox: kein Eingriff ins Spiel.
 
 use std::{
     fs,
     path::PathBuf,
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Mutex,
+    },
 };
 
 use tauri::{
@@ -62,6 +74,13 @@ struct Overlay {
     quitting: AtomicBool,
     /// Deckkraft in Prozent (30–100).
     opacity: AtomicU32,
+    /// „Immer im Vordergrund“: Standard aus, die Fenster liegen wie normale.
+    pinned: AtomicBool,
+    /// Ein Widget wollte zur Login-Seite (Sitzung abgelaufen): nach der nächsten
+    /// Anmeldung im Hauptfenster laden die Widgets neu.
+    needs_reload: AtomicBool,
+    /// Widgets, die geöffnet werden sollten, solange niemand angemeldet war.
+    pending: Mutex<Vec<&'static str>>,
 }
 
 /// Menüeinträge, deren Haken wir nachführen (Hotkey, X im Rahmen …).
@@ -69,6 +88,7 @@ struct TrayItems {
     widgets: Vec<(&'static str, CheckMenuItem<Wry>)>,
     edit: CheckMenuItem<Wry>,
     click: CheckMenuItem<Wry>,
+    pin: CheckMenuItem<Wry>,
 }
 
 fn shortcut(code: Code) -> Shortcut {
@@ -98,11 +118,15 @@ fn save_open(app: &AppHandle, except: Option<&str>) {
     if app.state::<Overlay>().quitting.load(Ordering::Relaxed) {
         return;
     }
+    // Widgets, die auf die Anmeldung warten, gehören zur Auswahl – sonst gingen
+    // sie beim nächsten Speichern verloren.
+    let pending = app.state::<Overlay>().pending.lock().map(|list| list.clone()).unwrap_or_default();
     let open: Vec<&str> = WIDGETS
         .iter()
         .filter(|def| {
             let label = widget_label(def.id);
-            Some(label.as_str()) != except && app.get_webview_window(&label).is_some()
+            Some(label.as_str()) != except
+                && (app.get_webview_window(&label).is_some() || pending.contains(&def.id))
         })
         .map(|def| def.id)
         .collect();
@@ -185,7 +209,82 @@ fn sync_checks(app: &AppHandle) {
     if let Some(items) = app.try_state::<TrayItems>() {
         let _ = items.edit.set_checked(state.edit.load(Ordering::Relaxed));
         let _ = items.click.set_checked(state.click_through.load(Ordering::Relaxed));
+        let _ = items.pin.set_checked(state.pinned.load(Ordering::Relaxed));
     }
+}
+
+/// „Immer im Vordergrund“ auf alle Fenster anwenden.
+fn apply_pin(app: &AppHandle) {
+    let pinned = app.state::<Overlay>().pinned.load(Ordering::Relaxed);
+    for window in all_windows(app) {
+        let _ = window.set_always_on_top(pinned);
+    }
+}
+
+fn toggle_pin(app: &AppHandle) {
+    let state = app.state::<Overlay>();
+    let on = !state.pinned.load(Ordering::Relaxed);
+    state.pinned.store(on, Ordering::Relaxed);
+    apply_pin(app);
+    sync_checks(app);
+}
+
+/// Holt alle sichtbaren Fenster einmal nach vorne, auch über Roblox, ohne sie
+/// dauerhaft festzusetzen (das ist „Immer im Vordergrund“).
+fn bring_to_front(app: &AppHandle) {
+    let pinned = app.state::<Overlay>().pinned.load(Ordering::Relaxed);
+    for window in all_windows(app) {
+        if !window.is_visible().unwrap_or(false) {
+            continue;
+        }
+        let _ = window.set_always_on_top(true);
+        if !pinned {
+            let _ = window.set_always_on_top(false);
+        }
+    }
+}
+
+// ------------------------------------------------------------------ Anmeldung
+
+/// Gibt es eine Sitzung? Dieselbe Prüfung wie im CAD (`proxy.ts`): das
+/// Sitzungs-Cookie von Auth.js. Nicht im Hauptthread aufrufen (unter Windows
+/// kann das hängen), nur aus eigenen Threads.
+fn session_present(app: &AppHandle) -> bool {
+    let (Some(main), Ok(url)) = (app.get_webview_window("main"), BASE_URL.parse::<Url>()) else {
+        return false;
+    };
+    main.cookies_for_url(url)
+        .map(|cookies| cookies.iter().any(|cookie| cookie.name().ends_with("authjs.session-token")))
+        .unwrap_or(false)
+}
+
+/// Hauptfenster nach vorne, damit man sich anmelden kann.
+fn show_main(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+    }
+}
+
+/// Nach der Anmeldung: wartende Widgets öffnen, abgelaufene neu laden.
+fn on_main_ready(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if !session_present(&app) {
+            return;
+        }
+        let state = app.state::<Overlay>();
+        let waiting = state.pending.lock().map(|mut list| std::mem::take(&mut *list)).unwrap_or_default();
+        for def in WIDGETS.iter().filter(|def| waiting.contains(&def.id)) {
+            open_widget(&app, def);
+        }
+        if state.needs_reload.swap(false, Ordering::Relaxed) {
+            for window in all_windows(&app).iter().filter(|window| is_widget(window)) {
+                let _ = window.eval("window.location.reload();");
+            }
+        }
+    });
 }
 
 /// Alles ausblenden, wenn irgendetwas sichtbar ist – sonst alles einblenden.
@@ -233,6 +332,20 @@ fn open_widget(app: &AppHandle, def: &'static WidgetDef) {
             return;
         };
         let state = app.state::<Overlay>();
+
+        // Ohne Anmeldung würde das Widget nur ein Login-Formular zeigen. Stattdessen
+        // vormerken und das Hauptfenster zum Anmelden zeigen; danach öffnet es sich.
+        if !session_present(&app) {
+            if let Ok(mut waiting) = state.pending.lock() {
+                if !waiting.contains(&def.id) {
+                    waiting.push(def.id);
+                }
+            }
+            set_widget_check(&app, def.id, true);
+            show_main(&app);
+            return;
+        }
+
         let edit = state.edit.load(Ordering::Relaxed);
         // Neue Widgets leicht versetzt, damit sie sich nicht genau überdecken.
         let offset = 40.0 + 28.0 * all_windows(&app).len() as f64;
@@ -245,7 +358,7 @@ fn open_widget(app: &AppHandle, def: &'static WidgetDef) {
             .decorations(edit)
             .transparent(true)
             .shadow(false)
-            .always_on_top(true)
+            .always_on_top(state.pinned.load(Ordering::Relaxed))
             .skip_taskbar(true)
             .resizable(true)
             .build();
@@ -258,13 +371,33 @@ fn open_widget(app: &AppHandle, def: &'static WidgetDef) {
             }
             Err(error) => {
                 eprintln!("Widget {} konnte nicht geöffnet werden: {error}", def.id);
-                set_widget_check(&app, def.id, false);
+                // Entstand das Fenster parallel doch (zwei Anläufe), bleibt der Haken.
+                if app.get_webview_window(&label).is_none() {
+                    set_widget_check(&app, def.id, false);
+                }
             }
         }
     });
 }
 
 fn toggle_widget(app: &AppHandle, def: &'static WidgetDef) {
+    // Wartet das Widget noch auf die Anmeldung, heißt Abwählen: nicht mehr vormerken.
+    let was_pending = app
+        .state::<Overlay>()
+        .pending
+        .lock()
+        .map(|mut list| {
+            let before = list.len();
+            list.retain(|id| *id != def.id);
+            list.len() != before
+        })
+        .unwrap_or(false);
+    if was_pending {
+        set_widget_check(app, def.id, false);
+        save_open(app, None);
+        return;
+    }
+
     match app.get_webview_window(&widget_label(def.id)) {
         Some(window) => {
             let _ = window.close();
@@ -365,6 +498,9 @@ fn main() {
             edit: AtomicBool::new(false),
             quitting: AtomicBool::new(false),
             opacity: AtomicU32::new(100),
+            pinned: AtomicBool::new(false),
+            needs_reload: AtomicBool::new(false),
+            pending: Mutex::new(Vec::new()),
         })
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -379,6 +515,10 @@ fn main() {
                     }
                     if pressed == &shortcut(Code::KeyC) {
                         toggle_visible(app);
+                    } else if pressed == &shortcut(Code::KeyV) {
+                        bring_to_front(app);
+                    } else if pressed == &shortcut(Code::KeyT) {
+                        toggle_pin(app);
                     } else if pressed == &shortcut(Code::KeyX) {
                         toggle_click_through(app);
                     } else if pressed == &shortcut(Code::KeyE) {
@@ -402,6 +542,17 @@ fn main() {
                     if url.host_str() != Some(BASE_HOST) {
                         return true;
                     }
+
+                    // Widget-Fenster, die zur Login-Seite wollen (Sitzung abgelaufen):
+                    // nicht anzeigen. Stattdessen das Hauptfenster zum Anmelden zeigen;
+                    // nach der Anmeldung laden die Widgets neu.
+                    if webview.label().starts_with("w-") && url.path().starts_with("/login") {
+                        let app = webview.app_handle().clone();
+                        app.state::<Overlay>().needs_reload.store(true, Ordering::Relaxed);
+                        std::thread::spawn(move || show_main(&app));
+                        return false;
+                    }
+
                     let Some(id) = url.path().strip_prefix("/overlay/") else {
                         return true;
                     };
@@ -436,6 +587,11 @@ fn main() {
             // Die Seite lädt bei jeder Navigation neu – Deckkraft erneut setzen.
             if let PageLoadEvent::Finished = payload.event() {
                 apply_opacity(webview.app_handle());
+                // Das Hauptfenster hat eine Seite jenseits der Anmeldung geladen:
+                // wartende Widgets öffnen, abgelaufene neu laden.
+                if webview.label() == "main" && !payload.url().path().starts_with("/login") {
+                    on_main_ready(webview.app_handle());
+                }
             }
         })
         .on_window_event(|window, event| match event {
@@ -456,7 +612,7 @@ fn main() {
         })
         .setup(|app| {
             let shortcuts = app.global_shortcut();
-            for code in [Code::KeyC, Code::KeyX, Code::KeyE, Code::ArrowUp, Code::ArrowDown] {
+            for code in [Code::KeyC, Code::KeyV, Code::KeyT, Code::KeyX, Code::KeyE, Code::ArrowUp, Code::ArrowDown] {
                 // Belegt schon ein anderes Programm die Kombination, läuft die
                 // App trotzdem – nur dieser Hotkey fehlt dann.
                 if let Err(error) = shortcuts.register(shortcut(code)) {
@@ -486,6 +642,8 @@ fn main() {
             let widgets_menu = Submenu::with_items(app, "Widgets", true, &widget_refs)?;
 
             let toggle = MenuItem::with_id(app, "toggle", "Alles ein-/ausblenden (Strg+Alt+C)", true, None::<&str>)?;
+            let front = MenuItem::with_id(app, "front", "Alles nach vorne holen (Strg+Alt+V)", true, None::<&str>)?;
+            let pin = CheckMenuItem::with_id(app, "pin", "Immer im Vordergrund (Strg+Alt+T)", true, false, None::<&str>)?;
             let edit = CheckMenuItem::with_id(app, "edit", "Widgets bearbeiten (Strg+Alt+E)", true, false, None::<&str>)?;
             let click = CheckMenuItem::with_id(app, "click", "Spielmodus: klickdurchlässig (Strg+Alt+X)", true, false, None::<&str>)?;
             let update = MenuItem::with_id(
@@ -497,10 +655,11 @@ fn main() {
             )?;
             let quit = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
-            let entries: [&dyn IsMenuItem<Wry>; 7] = [&widgets_menu, &edit, &click, &separator, &toggle, &update, &quit];
+            let entries: [&dyn IsMenuItem<Wry>; 9] =
+                [&widgets_menu, &edit, &click, &pin, &front, &separator, &toggle, &update, &quit];
             let menu = Menu::with_items(app, &entries)?;
 
-            app.manage(TrayItems { widgets: widget_items, edit, click });
+            app.manage(TrayItems { widgets: widget_items, edit, click, pin });
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -519,6 +678,8 @@ fn main() {
                         "toggle" => toggle_visible(app),
                         "edit" => toggle_edit(app),
                         "click" => toggle_click_through(app),
+                        "pin" => toggle_pin(app),
+                        "front" => bring_to_front(app),
                         "update" => {
                             tauri::async_runtime::spawn(check_for_update(app.clone(), true));
                         }
@@ -541,9 +702,15 @@ fn main() {
                 })
                 .build(app)?;
 
-            for def in WIDGETS.iter().filter(|def| reopen.contains(&def.id)) {
-                open_widget(app.handle(), def);
-            }
+            // Erst kurz warten: das Hauptfenster muss stehen, damit die Anmeldung
+            // geprüft werden kann. Ohne Anmeldung werden die Widgets vorgemerkt.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                for def in WIDGETS.iter().filter(|def| reopen.contains(&def.id)) {
+                    open_widget(&handle, def);
+                }
+            });
 
             start_update_checks(app.handle());
 

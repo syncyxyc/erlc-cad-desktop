@@ -1,6 +1,6 @@
 {
   "name": "erlc-cad-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Desktop-Hülle mit Overlay-Modus für das ERLC CAD",
   "scripts": {

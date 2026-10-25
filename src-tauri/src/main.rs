@@ -399,13 +399,34 @@ fn main() {
             tauri::plugin::Builder::<Wry>::new("popout")
                 .js_init_script("window.__ERLC_DESKTOP__ = true;".to_string())
                 .on_navigation(|webview, url| {
-                    if webview.label() == "main" && url.host_str() == Some(BASE_HOST) {
-                        if let Some(id) = url.path().strip_prefix("/overlay/") {
-                            if let Some(def) = WIDGETS.iter().find(|def| def.id == id.trim_end_matches('/')) {
-                                open_widget(webview.app_handle(), def);
-                            }
-                            return false;
+                    if url.host_str() != Some(BASE_HOST) {
+                        return true;
+                    }
+                    let Some(id) = url.path().strip_prefix("/overlay/") else {
+                        return true;
+                    };
+
+                    // Hauptfenster: ein Widget soll ausgelagert werden.
+                    if webview.label() == "main" {
+                        if let Some(def) = WIDGETS.iter().find(|def| def.id == id.trim_end_matches('/')) {
+                            open_widget(webview.app_handle(), def);
                         }
+                        return false;
+                    }
+
+                    // Widget-Fenster: der Schließen-Knopf der Seite ruft
+                    // `/overlay/<widget>?close=1` auf. Das erste Laden des
+                    // Fensters hat keinen `close`-Parameter und geht durch.
+                    if webview.label().starts_with("w-") && url.query_pairs().any(|(key, _)| key == "close") {
+                        let app = webview.app_handle().clone();
+                        let label = webview.label().to_string();
+                        // Nicht im Navigations-Handler selbst schließen.
+                        std::thread::spawn(move || {
+                            if let Some(window) = app.get_webview_window(&label) {
+                                let _ = window.close();
+                            }
+                        });
+                        return false;
                     }
                     true
                 })

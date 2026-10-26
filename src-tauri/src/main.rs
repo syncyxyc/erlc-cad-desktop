@@ -49,6 +49,23 @@ use tauri_plugin_window_state::StateFlags;
 const BASE_HOST: &str = "erlc-cad-xi.vercel.app";
 const BASE_URL: &str = "https://erlc-cad-xi.vercel.app";
 
+/// Läuft in jeder Seite der App: meldet der Seite, dass sie in der App läuft, und lässt
+/// Widget-Fenster (`/overlay/…`) an jeder freien Stelle mit der Maus ziehen. Knöpfe,
+/// Links, Eingabefelder und Scrollleisten bleiben ausgenommen. Die Verbindung zur App
+/// läuft über eine abgebrochene Navigation (`?drag=1`), nicht über eine Schnittstelle.
+const INIT_SCRIPT: &str = r#"
+window.__ERLC_DESKTOP__ = true;
+(function () {
+  if (!location.pathname.startsWith('/overlay/')) return;
+  document.addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || !e.target || !e.target.closest) return;
+    if (e.target.closest('a,button,input,select,textarea,label,[role=button],[contenteditable],[data-no-drag]')) return;
+    if (e.target.clientWidth && e.offsetX >= e.target.clientWidth) return;
+    location.assign(location.pathname.replace(/\/$/, '') + '?drag=1');
+  }, true);
+})();
+"#;
+
 struct WidgetDef {
     id: &'static str,
     title: &'static str,
@@ -57,13 +74,15 @@ struct WidgetDef {
 }
 
 /// Die wählbaren Widgets – dieselben Kennungen wie `WIDGET_IDS` im CAD.
-static WIDGETS: [WidgetDef; 6] = [
+static WIDGETS: [WidgetDef; 7] = [
     WidgetDef { id: "clock", title: "Uhr", width: 230.0, height: 130.0 },
     WidgetDef { id: "duty", title: "Dienststatus", width: 270.0, height: 170.0 },
     WidgetDef { id: "calls", title: "Offene Einsätze", width: 210.0, height: 90.0 },
     WidgetDef { id: "players", title: "Spieler online", width: 210.0, height: 90.0 },
     WidgetDef { id: "bolos", title: "Aktive Fahndungen", width: 210.0, height: 90.0 },
     WidgetDef { id: "notes", title: "Notizzettel", width: 240.0, height: 170.0 },
+    // Baukasten-Widget: Größe wächst im CAD mit den gewählten Angaben; hier die Startgröße.
+    WidgetDef { id: "custom", title: "Eigenes Widget", width: 280.0, height: 260.0 },
 ];
 
 struct Overlay {
@@ -537,7 +556,7 @@ fn main() {
             // `/overlay/<widget>` aufruft. Das Hauptfenster bricht diese
             // Navigation ab und öffnet stattdessen das Widget-Fenster.
             tauri::plugin::Builder::<Wry>::new("popout")
-                .js_init_script("window.__ERLC_DESKTOP__ = true;".to_string())
+                .js_init_script(INIT_SCRIPT.to_string())
                 .on_navigation(|webview, url| {
                     if url.host_str() != Some(BASE_HOST) {
                         return true;
@@ -562,6 +581,20 @@ fn main() {
                         if let Some(def) = WIDGETS.iter().find(|def| def.id == id.trim_end_matches('/')) {
                             open_widget(webview.app_handle(), def);
                         }
+                        return false;
+                    }
+
+                    // Widget-Fenster: Mausdruck auf eine freie Stelle (siehe `INIT_SCRIPT`)
+                    // ruft `/overlay/<widget>?drag=1` auf. Statt zu navigieren, beginnt das
+                    // Fenster hier, sich mit der Maus ziehen zu lassen.
+                    if webview.label().starts_with("w-") && url.query_pairs().any(|(key, _)| key == "drag") {
+                        let app = webview.app_handle().clone();
+                        let label = webview.label().to_string();
+                        std::thread::spawn(move || {
+                            if let Some(window) = app.get_webview_window(&label) {
+                                let _ = window.start_dragging();
+                            }
+                        });
                         return false;
                     }
 

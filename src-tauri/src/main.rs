@@ -47,7 +47,7 @@ use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::StateFlags;
 
 const BASE_HOST: &str = "erlc-cad-xi.vercel.app";
-const BASE_URL: &str = "https://erlc-cad-xi.vercel.app";
+const BASE_URL: &str = "https://unifiedcommandsystem.com";
 
 /// Läuft in jeder Seite der App: meldet der Seite, dass sie in der App läuft, und lässt
 /// Widget-Fenster (`/overlay/…`) an jeder freien Stelle mit der Maus ziehen. Knöpfe,

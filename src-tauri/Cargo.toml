@@ -1,7 +1,7 @@
 [package]
 name = "erlc-cad-desktop"
-version = "0.2.3"
-description = "Desktop-Hülle mit Overlay-Modus für das ERLC CAD"
+version = "0.3.0"
+description = "Desktop-Hülle mit Overlay-Modus für das UCS"
 edition = "2021"
 
 [build-dependencies]

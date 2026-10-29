@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! Desktop-Hülle für das ERLC CAD.
+//! Desktop-Hülle für das UCS.
 //!
 //! Das Hauptfenster lädt die Live-Seite; Login, Passkeys und Daten bleiben beim
 //! Server. Dazu gibt es kleine Widget-Fenster (Uhr, Dienst, Einsätze …), die du
@@ -46,8 +46,8 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::StateFlags;
 
-const BASE_HOST: &str = "erlc-cad-xi.vercel.app";
-const BASE_URL: &str = "https://erlc-cad-xi.vercel.app";
+const BASE_HOST: &str = "unifiedcommandsystem.com";
+const BASE_URL: &str = "https://unifiedcommandsystem.com";
 
 /// Läuft in jeder Seite der App: meldet der Seite, dass sie in der App läuft, und lässt
 /// Widget-Fenster (`/overlay/…`) an jeder freien Stelle mit der Maus ziehen. Knöpfe,
@@ -431,7 +431,7 @@ fn toggle_widget(app: &AppHandle, def: &'static WidgetDef) {
 fn info_dialog(app: &AppHandle, kind: MessageDialogKind, message: String) {
     app.dialog()
         .message(message)
-        .title("ERLC CAD – Update")
+        .title("UCS – Update")
         .kind(kind)
         .show(|_| {});
 }
@@ -460,7 +460,7 @@ async fn check_for_update(app: AppHandle, manual: bool) {
             let handle = app.clone();
             app.dialog()
                 .message(message)
-                .title("ERLC CAD – Update")
+                .title("UCS – Update")
                 .kind(MessageDialogKind::Info)
                 .buttons(MessageDialogButtons::OkCancelCustom("Installieren".into(), "Später".into()))
                 .show(move |install| {
@@ -696,7 +696,7 @@ fn main() {
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("ERLC CAD")
+                .tooltip("UCS")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
@@ -750,5 +750,5 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("ERLC CAD Desktop konnte nicht starten");
+        .expect("UCS Desktop konnte nicht starten");
 }

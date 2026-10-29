@@ -1,8 +1,8 @@
 {
   "name": "erlc-cad-desktop",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
-  "description": "Desktop-Hülle mit Overlay-Modus für das ERLC CAD",
+  "description": "Desktop-Hülle mit Overlay-Modus für das UCS",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",

@@ -1,0 +1,29 @@
+name: Build Windows installer
+on:
+  push:
+    branches: [fix/current-cad-domain]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install locked CLI dependencies
+        run: npm ci
+      - name: Build installer without accessing the release signing key
+        shell: pwsh
+        run: |
+          '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -Path build-ci.json -Encoding utf8
+          npm run build -- --config build-ci.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-installer
+          path: src-tauri/target/release/bundle/nsis/*_x64-setup.exe
+          if-no-files-found: error
+          retention-days: 3

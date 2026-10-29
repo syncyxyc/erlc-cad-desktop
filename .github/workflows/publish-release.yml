@@ -1,0 +1,44 @@
+name: Publish signed UCS desktop release
+on:
+  push:
+    branches: [main]
+    paths: [release/ucs-0.3.0.json]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: desktop-release-0-3-0
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify and publish the locally signed release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $meta = Get-Content release/ucs-0.3.0.json -Raw | ConvertFrom-Json
+          if ($meta.version -ne '0.3.0' -or $meta.runId -ne 40947875504) { throw 'Unexpected release metadata' }
+          git merge-base --is-ancestor $meta.sourceSha HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Build source is not part of this release' }
+          gh run download "$($meta.runId)" --name windows-installer --dir release-assets
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
+          $binary = Join-Path release-assets $meta.fileName
+          $actual = (Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $meta.sha256) { throw 'Installer checksum mismatch' }
+          Copy-Item "$binary" release-assets/UCS-Setup.exe
+          Copy-Item "$binary" release-assets/ERLC-CAD-Setup.exe
+          Copy-Item "release/$($meta.fileName).sig" release-assets/
+          Copy-Item release/latest.json release-assets/
+          "$actual  $($meta.fileName)" | Set-Content release-assets/SHA256SUMS.txt -Encoding utf8
+          $assets = @($binary, "$binary.sig", 'release-assets/UCS-Setup.exe', 'release-assets/ERLC-CAD-Setup.exe', 'release-assets/latest.json', 'release-assets/SHA256SUMS.txt')
+          gh release create "v$($meta.version)" @assets --target "$env:GITHUB_SHA" --title "UCS Desktop $($meta.version)" --notes-file release/UCS-0.3.0-CHANGELOG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
